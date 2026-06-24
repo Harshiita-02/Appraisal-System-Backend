@@ -9,12 +9,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-/**
- * HR routes are NOT scoped to "current user" — HR can see/act on everyone.
- * No id-query-param workaround needed here, unlike Employee/Manager. The gap
- * that remains: nothing currently stops a non-HR caller from hitting these
- * routes, since there's no role check without security in place.
- */
 @RestController
 @RequestMapping("/api/hr")
 @RequiredArgsConstructor
@@ -114,6 +108,11 @@ public class HrController {
     @GetMapping("/cycles")
     public ResponseEntity<List<AppraisalCycleResponse>> getCycles() {
         return ResponseEntity.ok(cycleService.getAllCycles());
+    }
+
+    @PostMapping("/cycles")
+    public ResponseEntity<AppraisalCycleResponse> createCycle(@Valid @RequestBody AppraisalCycleRequest request) {
+        return ResponseEntity.ok(cycleService.createCycle(request));
     }
 
     @GetMapping("/reports")

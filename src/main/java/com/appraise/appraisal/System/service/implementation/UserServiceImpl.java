@@ -50,9 +50,13 @@ public class UserServiceImpl implements UserService {
         }
 
         User user = new User();
-        mapRequestToEntity(request, user, department, manager);
+        user.setName(request.getName().trim());
         user.setEmail(normalizedEmail);
-        user.setStatus(UserStatus.ACTIVE);
+        user.setPassword(request.getPassword());
+        user.setJobTitle(request.getJobTitle().trim());
+        user.setDepartment(department);
+        user.setManager(manager);
+        user.setRole(parseRole(request.getRole()));
 
         User saved = userRepository.save(user);
         return userMapper.toResponse(saved);
@@ -86,7 +90,7 @@ public class UserServiceImpl implements UserService {
         String normalizedEmail = request.getEmail().trim().toLowerCase();
         if (!existingUser.getEmail().equalsIgnoreCase(normalizedEmail) &&
                 userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
-            throw new DuplicateResourceException("Email '" + normalizedEmail + "' is already claimed by another user");
+            throw new DuplicateResourceException("Email '" + normalizedEmail + "' is already taken by another user");
         }
 
         Department department = departmentRepository.findById(request.getDepartmentId())
@@ -95,14 +99,22 @@ public class UserServiceImpl implements UserService {
         User manager = null;
         if (request.getManagerId() != null) {
             if (id.equals(request.getManagerId())) {
-                throw new BadRequestException("A user cannot be assigned as their own manager");
+                throw new BadRequestException("A user cannot be their own manager");
             }
             manager = userRepository.findById(request.getManagerId())
                     .orElseThrow(() -> new ResourceNotFoundException("Manager not found with ID: " + request.getManagerId()));
         }
 
-        mapRequestToEntity(request, existingUser, department, manager);
+        existingUser.setName(request.getName().trim());
         existingUser.setEmail(normalizedEmail);
+        existingUser.setJobTitle(request.getJobTitle().trim());
+        existingUser.setDepartment(department);
+        existingUser.setManager(manager);
+        existingUser.setRole(parseRole(request.getRole()));
+
+        if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            existingUser.setPassword(request.getPassword());
+        }
 
         User saved = userRepository.save(existingUser);
         return userMapper.toResponse(saved);
@@ -115,7 +127,7 @@ public class UserServiceImpl implements UserService {
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with ID: " + id));
 
         if (userRepository.existsByManagerId(id)) {
-            throw new BadRequestException("Cannot delete this user because they are actively assigned as a manager to other employees");
+            throw new BadRequestException("Cannot delete this user — they are assigned as manager to other employees");
         }
 
         userRepository.delete(user);
@@ -135,11 +147,12 @@ public class UserServiceImpl implements UserService {
         try {
             newStatus = UserStatus.valueOf(status.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
-            throw new BadRequestException("Invalid status value provided: " + status + ". Must be ACTIVE or INACTIVE");
+            throw new BadRequestException("Invalid status: " + status + ". Must be ACTIVE or INACTIVE");
         }
 
         if (newStatus == UserStatus.INACTIVE && userRepository.existsByManagerId(id)) {
-            throw new BadRequestException("Cannot deactivate this user because they are actively assigned as a manager to other employees");
+            throw new BadRequestException(
+                    "Cannot deactivate this user — they are assigned as manager to other employees");
         }
 
         user.setStatus(newStatus);
@@ -147,17 +160,11 @@ public class UserServiceImpl implements UserService {
         return userMapper.toResponse(saved);
     }
 
-    private void mapRequestToEntity(UserRequest request, User user, Department department, User manager) {
-        user.setName(request.getName().trim());
-        user.setPassword(request.getPassword());
-        user.setJobTitle(request.getJobTitle().trim());
-        user.setDepartment(department);
-        user.setManager(manager);
-
+    private Roles parseRole(String role) {
         try {
-            user.setRole(Roles.valueOf(request.getRole().trim().toUpperCase()));
+            return Roles.valueOf(role.trim().toUpperCase());
         } catch (IllegalArgumentException | NullPointerException e) {
-            throw new BadRequestException("Invalid system role type standard provided: " + request.getRole());
+            throw new BadRequestException("Invalid role: " + role + ". Must be HR, MANAGER, or EMPLOYEE");
         }
     }
 }

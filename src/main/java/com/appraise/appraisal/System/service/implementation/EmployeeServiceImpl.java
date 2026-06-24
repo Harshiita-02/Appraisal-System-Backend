@@ -137,6 +137,28 @@ public class EmployeeServiceImpl implements EmployeeService {
         return goalMapper.toResponse(saved);
     }
 
+    @Override
+    @Transactional
+    public AppraisalResponse saveSelfAssessmentDraft(Long employeeId, Long appraisalId, SelfAssessmentRequest request) {
+        Appraisal appraisal = findOwnedAppraisal(employeeId, appraisalId);
+
+        if (appraisal.getStatus() != AppraisalStatus.PENDING
+                && appraisal.getStatus() != AppraisalStatus.EMPLOYEE_DRAFT) {
+            throw new BadRequestException(
+                    "Draft can only be saved while the appraisal is PENDING or EMPLOYEE_DRAFT, not "
+                            + appraisal.getStatus());
+        }
+
+        appraisal.setWhatWentWell(request.getWhatWentWell());
+        appraisal.setWhatToImprove(request.getWhatToImprove());
+        appraisal.setKeyAchievements(request.getKeyAchievements());
+        appraisal.setSelfRating(request.getSelfRating());
+        appraisal.setStatus(AppraisalStatus.EMPLOYEE_DRAFT); // stays draft, not submitted
+
+        Appraisal saved = appraisalRepository.save(appraisal);
+        return AppraisalMapper.toResponse(saved);
+    }
+
     private Appraisal findOwnedAppraisal(Long employeeId, Long appraisalId) {
         Appraisal appraisal = appraisalRepository.findByIdWithRelationships(appraisalId)
                 .orElseThrow(() -> new ResourceNotFoundException("Appraisal not found with ID: " + appraisalId));

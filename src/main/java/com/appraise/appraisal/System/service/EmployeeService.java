@@ -29,4 +29,5 @@ public interface EmployeeService {
     List<GoalResponse> getMyGoals(Long employeeId);
 
     GoalResponse respondToGoal(Long employeeId, Long goalId, EmployeeGoalCompletionRequest request);
+    AppraisalResponse saveSelfAssessmentDraft(Long employeeId, Long appraisalId, SelfAssessmentRequest request);
 }

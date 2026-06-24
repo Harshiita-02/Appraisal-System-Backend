@@ -24,11 +24,18 @@ public class AuthServiceImpl implements AuthService {
             throw new RuntimeException("Invalid credentials");
         }
 
-        return new LoginResponse(
+        // No JWT for now — sending a plain token string.
+        // Replace with real JWT generation when you add Spring Security.
+        String token = "token-for-user-" + user.getId();
+
+        LoginResponse.UserPayload payload = new LoginResponse.UserPayload(
                 user.getId(),
                 user.getName(),
                 user.getEmail(),
-                user.getRole().name()
+                user.getRole().name(),
+                user.getJobTitle()   // make sure your User entity has getJobTitle()
         );
+
+        return new LoginResponse(token, payload);
     }
 }

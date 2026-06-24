@@ -36,6 +36,10 @@ public class User {
     @Column(name = "job_title", nullable = false, length = 100)
     private String jobTitle;
 
+    // FIX: was @Transient with a getStatus() hardcoded to always return
+    // ACTIVE, so status could never actually be read or changed even
+    // though the DB has a real "status" column. Now a real persisted
+    // field mapped to that column.
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private UserStatus status = UserStatus.ACTIVE;

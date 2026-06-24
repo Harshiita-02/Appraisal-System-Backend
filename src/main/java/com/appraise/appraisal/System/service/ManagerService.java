@@ -1,13 +1,6 @@
 package com.appraise.appraisal.System.service;
 
-import com.appraise.appraisal.System.dtos.AppraisalResponse;
-import com.appraise.appraisal.System.dtos.GoalRequest;
-import com.appraise.appraisal.System.dtos.GoalResponse;
-import com.appraise.appraisal.System.dtos.ManagerDashboardResponse;
-import com.appraise.appraisal.System.dtos.SelfAssessmentRequest;
-import com.appraise.appraisal.System.dtos.TeamMemberResponse;
-import com.appraise.appraisal.System.dtos.TeamReportResponse;
-import com.appraise.appraisal.System.dtos.EmployeeGoalCompletionRequest;
+import com.appraise.appraisal.System.dtos.*;
 
 import java.util.List;
 
@@ -38,4 +31,6 @@ public interface ManagerService {
     GoalResponse confirmGoalStatus(Long managerId, Long goalId, boolean completed);
 
     TeamReportResponse getTeamReport(Long managerId, Long cycleId);
+
+    AppraisalResponse reviewTeamAppraisal(Long managerId, Long appraisalId, ManagerReviewRequest request, boolean submit);
 }

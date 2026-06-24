@@ -68,4 +68,13 @@ public class EmployeeController {
                                                       @RequestBody EmployeeGoalCompletionRequest request) {
         return ResponseEntity.ok(employeeService.respondToGoal(employeeId, goalId, request));
     }
+
+    @PutMapping("/appraisals/{id}/draft")
+    public ResponseEntity<AppraisalResponse> saveSelfAssessmentDraft(
+            @RequestParam Long employeeId,
+            @PathVariable("id") Long appraisalId,
+            @RequestBody SelfAssessmentRequest request) {
+        // Save without status transition — stays EMPLOYEE_DRAFT
+        return ResponseEntity.ok(employeeService.saveSelfAssessmentDraft(employeeId, appraisalId, request));
+    }
 }

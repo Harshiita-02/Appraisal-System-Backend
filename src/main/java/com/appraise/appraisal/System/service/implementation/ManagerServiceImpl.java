@@ -246,6 +246,7 @@ public class ManagerServiceImpl implements ManagerService {
         long goalsCompleted = memberGoals.stream().filter(g -> g.getStatus() == GoalStatus.COMPLETED).count();
 
         return new TeamReportRow(
+                appraisal != null ? appraisal.getId() : null,  // NEW first argument
                 member.getId(),
                 member.getName(),
                 member.getJobTitle(),
@@ -286,5 +287,30 @@ public class ManagerServiceImpl implements ManagerService {
             throw new BadRequestException("The due date (" + dueDate
                     + ") must fall within the appraisal cycle window (ends " + cycle.getEndDate() + ")");
         }
+    }
+
+
+    @Transactional
+    public AppraisalResponse reviewTeamAppraisal(Long managerId, Long appraisalId, ManagerReviewRequest request, boolean submit) {
+        Appraisal appraisal = appraisalRepository.findByIdWithRelationships(appraisalId)
+                .orElseThrow(() -> new ResourceNotFoundException("Appraisal not found with ID: " + appraisalId));
+
+        if (appraisal.getManager() == null || !appraisal.getManager().getId().equals(managerId)) {
+            throw new BadRequestException("This appraisal does not belong to one of the requesting manager's reports");
+        }
+
+        // A manager can only act once the employee has actually submitted their
+        // side, or while continuing a draft review they already started.
+        if (appraisal.getStatus() != AppraisalStatus.SELF_SUBMITTED
+                && appraisal.getStatus() != AppraisalStatus.MANAGER_DRAFT) {
+            throw new BadRequestException(
+                    "This appraisal isn't ready for manager review yet. Current status: " + appraisal.getStatus());
+        }
+
+        appraisal.setManagerRating(request.getManagerRating());
+        appraisal.setManagerComments(request.getManagerComments());
+        appraisal.setStatus(submit ? AppraisalStatus.MANAGER_REVIEWED : AppraisalStatus.MANAGER_DRAFT);
+
+        return AppraisalMapper.toResponse(appraisalRepository.save(appraisal));
     }
 }

@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class TeamReportRow {
+    private Long appraisalId;
     private Long employeeId;
     private String employeeName;
     private String jobTitle;

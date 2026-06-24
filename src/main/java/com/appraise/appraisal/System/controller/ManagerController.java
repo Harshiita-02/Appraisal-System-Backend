@@ -94,4 +94,12 @@ public class ManagerController {
                                                             @RequestParam Long cycleId) {
         return ResponseEntity.ok(managerService.getTeamReport(managerId, cycleId));
     }
+
+    @PutMapping("/team-appraisals/{id}/review")
+    public ResponseEntity<AppraisalResponse> reviewTeamAppraisal(@RequestParam Long managerId,
+                                                                 @PathVariable("id") Long appraisalId,
+                                                                 @RequestParam(defaultValue = "true") boolean submit,
+                                                                 @Valid @RequestBody ManagerReviewRequest request) {
+        return ResponseEntity.ok(managerService.reviewTeamAppraisal(managerId, appraisalId, request, submit));
+    }
 }
