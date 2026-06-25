@@ -117,10 +117,8 @@ public class ManagerServiceImpl implements ManagerService {
     @Transactional
     public AppraisalResponse saveSelfAssessmentDraft(Long managerId, Long appraisalId, SelfAssessmentRequest request) {
         Appraisal appraisal = findOwnAppraisal(managerId, appraisalId);
-
         applySelfAssessmentFields(appraisal, request);
         appraisal.setStatus(AppraisalStatus.EMPLOYEE_DRAFT);
-
         return AppraisalMapper.toResponse(appraisalRepository.save(appraisal));
     }
 
@@ -143,10 +141,23 @@ public class ManagerServiceImpl implements ManagerService {
             throw new BadRequestException("This goal does not belong to the requesting manager");
         }
 
-        goal.setEmployeeResponse(request.isCompleted()
-                ? GoalEmployeeResponse.COMPLETED
-                : GoalEmployeeResponse.NOT_COMPLETED);
-        goal.setEmployeeNote(request.getNote());
+        if (request.getCompleted() == null) {
+            // Clicked "Mark In Progress" — started working, no completion claim yet
+            goal.setEmployeeResponse(GoalEmployeeResponse.IN_PROGRESS);
+            goal.setStatus(GoalStatus.IN_PROGRESS);
+        } else if (request.getCompleted()) {
+            // Claims done — stays IN_PROGRESS until manager confirms
+            goal.setEmployeeResponse(GoalEmployeeResponse.COMPLETED);
+            goal.setStatus(GoalStatus.IN_PROGRESS);
+        } else {
+            // Claims not done — stays IN_PROGRESS until manager confirms
+            goal.setEmployeeResponse(GoalEmployeeResponse.NOT_COMPLETED);
+            goal.setStatus(GoalStatus.IN_PROGRESS);
+        }
+
+        if (request.getNote() != null) {
+            goal.setEmployeeNote(request.getNote());
+        }
 
         return goalMapper.toResponse(goalRepository.save(goal));
     }
@@ -204,6 +215,18 @@ public class ManagerServiceImpl implements ManagerService {
             throw new BadRequestException("This goal does not belong to one of the requesting manager's reports");
         }
 
+        if (goal.getEmployeeResponse() == GoalEmployeeResponse.PENDING
+                || goal.getEmployeeResponse() == GoalEmployeeResponse.IN_PROGRESS) {
+            throw new BadRequestException(
+                    "Cannot confirm this goal yet — the employee has not submitted a completion response.");
+        }
+
+        if (completed && goal.getEmployeeResponse() == GoalEmployeeResponse.NOT_COMPLETED) {
+            throw new BadRequestException(
+                    "Cannot mark as completed — the employee reported it as not done. " +
+                            "Reset to Not Started if you want the employee to retry.");
+        }
+
         goal.setStatus(completed ? GoalStatus.COMPLETED : GoalStatus.NOT_STARTED);
 
         return goalMapper.toResponse(goalRepository.save(goal));
@@ -232,6 +255,32 @@ public class ManagerServiceImpl implements ManagerService {
         return new TeamReportResponse(cycle.getName(), team.size(), avgRating, rows);
     }
 
+    @Override
+    @Transactional
+    public AppraisalResponse reviewTeamAppraisal(Long managerId, Long appraisalId, ManagerReviewRequest request, boolean submit) {
+        Appraisal appraisal = appraisalRepository.findByIdWithRelationships(appraisalId)
+                .orElseThrow(() -> new ResourceNotFoundException("Appraisal not found with ID: " + appraisalId));
+
+        if (appraisal.getManager() == null || !appraisal.getManager().getId().equals(managerId)) {
+            throw new BadRequestException("This appraisal does not belong to one of the requesting manager's reports");
+        }
+
+        if (appraisal.getStatus() != AppraisalStatus.SELF_SUBMITTED
+                && appraisal.getStatus() != AppraisalStatus.MANAGER_DRAFT) {
+            throw new BadRequestException(
+                    "This appraisal isn't ready for manager review yet. Current status: " + appraisal.getStatus());
+        }
+
+        appraisal.setManagerRating(request.getManagerRating());
+        appraisal.setManagerComments(request.getManagerComments());
+        appraisal.setStatus(submit ? AppraisalStatus.MANAGER_REVIEWED : AppraisalStatus.MANAGER_DRAFT);
+
+
+        return AppraisalMapper.toResponse(appraisalRepository.save(appraisal));
+    }
+
+    // ── Private helpers ──────────────────────────────────────────────────────
+
     private TeamReportRow buildReportRow(User member, Long cycleId) {
         Appraisal appraisal = appraisalRepository.findByEmployeeIdWithRelationships(member.getId())
                 .stream()
@@ -243,10 +292,12 @@ public class ManagerServiceImpl implements ManagerService {
                 ? goalRepository.findByAppraisalIdWithRelationships(appraisal.getId())
                 : List.of();
 
-        long goalsCompleted = memberGoals.stream().filter(g -> g.getStatus() == GoalStatus.COMPLETED).count();
+        long goalsCompleted = memberGoals.stream()
+                .filter(g -> g.getStatus() == GoalStatus.COMPLETED)
+                .count();
 
         return new TeamReportRow(
-                appraisal != null ? appraisal.getId() : null,  // NEW first argument
+                appraisal != null ? appraisal.getId() : null,
                 member.getId(),
                 member.getName(),
                 member.getJobTitle(),
@@ -287,30 +338,5 @@ public class ManagerServiceImpl implements ManagerService {
             throw new BadRequestException("The due date (" + dueDate
                     + ") must fall within the appraisal cycle window (ends " + cycle.getEndDate() + ")");
         }
-    }
-
-
-    @Transactional
-    public AppraisalResponse reviewTeamAppraisal(Long managerId, Long appraisalId, ManagerReviewRequest request, boolean submit) {
-        Appraisal appraisal = appraisalRepository.findByIdWithRelationships(appraisalId)
-                .orElseThrow(() -> new ResourceNotFoundException("Appraisal not found with ID: " + appraisalId));
-
-        if (appraisal.getManager() == null || !appraisal.getManager().getId().equals(managerId)) {
-            throw new BadRequestException("This appraisal does not belong to one of the requesting manager's reports");
-        }
-
-        // A manager can only act once the employee has actually submitted their
-        // side, or while continuing a draft review they already started.
-        if (appraisal.getStatus() != AppraisalStatus.SELF_SUBMITTED
-                && appraisal.getStatus() != AppraisalStatus.MANAGER_DRAFT) {
-            throw new BadRequestException(
-                    "This appraisal isn't ready for manager review yet. Current status: " + appraisal.getStatus());
-        }
-
-        appraisal.setManagerRating(request.getManagerRating());
-        appraisal.setManagerComments(request.getManagerComments());
-        appraisal.setStatus(submit ? AppraisalStatus.MANAGER_REVIEWED : AppraisalStatus.MANAGER_DRAFT);
-
-        return AppraisalMapper.toResponse(appraisalRepository.save(appraisal));
     }
 }

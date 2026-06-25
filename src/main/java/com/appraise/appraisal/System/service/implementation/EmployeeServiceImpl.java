@@ -90,8 +90,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         appraisal.setSelfRating(request.getSelfRating());
         appraisal.setStatus(AppraisalStatus.SELF_SUBMITTED);
 
-        Appraisal saved = appraisalRepository.save(appraisal);
-        return AppraisalMapper.toResponse(saved);
+        return AppraisalMapper.toResponse(appraisalRepository.save(appraisal));
     }
 
     @Override
@@ -105,8 +104,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         }
 
         appraisal.setStatus(AppraisalStatus.ACKNOWLEDGED);
-        Appraisal saved = appraisalRepository.save(appraisal);
-        return AppraisalMapper.toResponse(saved);
+        return AppraisalMapper.toResponse(appraisalRepository.save(appraisal));
     }
 
     @Override
@@ -128,13 +126,25 @@ public class EmployeeServiceImpl implements EmployeeService {
             throw new BadRequestException("This goal does not belong to the requesting employee");
         }
 
-        goal.setEmployeeResponse(request.isCompleted()
-                ? GoalEmployeeResponse.COMPLETED
-                : GoalEmployeeResponse.NOT_COMPLETED);
-        goal.setEmployeeNote(request.getNote());
+        if (request.getCompleted() == null) {
+            // Clicked "Mark In Progress" — started working, no completion claim yet
+            goal.setEmployeeResponse(GoalEmployeeResponse.IN_PROGRESS);
+            goal.setStatus(GoalStatus.IN_PROGRESS);
+        } else if (request.getCompleted()) {
+            // Claims done — stays IN_PROGRESS until manager confirms
+            goal.setEmployeeResponse(GoalEmployeeResponse.COMPLETED);
+            goal.setStatus(GoalStatus.IN_PROGRESS);
+        } else {
+            // Claims not done — stays IN_PROGRESS until manager confirms
+            goal.setEmployeeResponse(GoalEmployeeResponse.NOT_COMPLETED);
+            goal.setStatus(GoalStatus.IN_PROGRESS);
+        }
 
-        Goal saved = goalRepository.save(goal);
-        return goalMapper.toResponse(saved);
+        if (request.getNote() != null) {
+            goal.setEmployeeNote(request.getNote());
+        }
+
+        return goalMapper.toResponse(goalRepository.save(goal));
     }
 
     @Override
@@ -153,11 +163,12 @@ public class EmployeeServiceImpl implements EmployeeService {
         appraisal.setWhatToImprove(request.getWhatToImprove());
         appraisal.setKeyAchievements(request.getKeyAchievements());
         appraisal.setSelfRating(request.getSelfRating());
-        appraisal.setStatus(AppraisalStatus.EMPLOYEE_DRAFT); // stays draft, not submitted
+        appraisal.setStatus(AppraisalStatus.EMPLOYEE_DRAFT);
 
-        Appraisal saved = appraisalRepository.save(appraisal);
-        return AppraisalMapper.toResponse(saved);
+        return AppraisalMapper.toResponse(appraisalRepository.save(appraisal));
     }
+
+    // ── Private helpers ──────────────────────────────────────────────────────
 
     private Appraisal findOwnedAppraisal(Long employeeId, Long appraisalId) {
         Appraisal appraisal = appraisalRepository.findByIdWithRelationships(appraisalId)

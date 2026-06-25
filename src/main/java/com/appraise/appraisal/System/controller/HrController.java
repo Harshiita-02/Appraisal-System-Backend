@@ -119,4 +119,10 @@ public class HrController {
     public ResponseEntity<CycleReportResponse> getCycleReport(@RequestParam Long cycleId) {
         return ResponseEntity.ok(hrService.getCycleReport(cycleId));
     }
+
+    @DeleteMapping("/users/{id}")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+        userService.deleteUser(id);
+        return ResponseEntity.noContent().build();
+    }
 }

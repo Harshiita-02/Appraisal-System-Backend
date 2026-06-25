@@ -12,6 +12,5 @@ import lombok.AllArgsConstructor;
 @AllArgsConstructor
 public class ManagerReviewRequest {
         private Double managerRating;
-        private String managerComments;  // ← this field is missing
-        private boolean submit;
+        private String managerComments;
     }

@@ -125,11 +125,6 @@ public class UserServiceImpl implements UserService {
     public void deleteUser(Long id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with ID: " + id));
-
-        if (userRepository.existsByManagerId(id)) {
-            throw new BadRequestException("Cannot delete this user — they are assigned as manager to other employees");
-        }
-
         userRepository.delete(user);
     }
 
