@@ -25,6 +25,12 @@ public class AppraisalMapper {
         if (appraisal.getEmployee() != null) {
             response.setEmployeeId(appraisal.getEmployee().getId());
             response.setEmployeeName(appraisal.getEmployee().getName());
+            if (appraisal.getEmployee().getRole() != null) {
+                response.setEmployeeRole(appraisal.getEmployee().getRole().name());
+            }
+            if (appraisal.getEmployee().getRole() != null) {
+                response.setEmployeeRole(appraisal.getEmployee().getRole().name());
+            }
 
             if (appraisal.getEmployee().getDepartment() != null) {
                 response.setDepartmentId(appraisal.getEmployee().getDepartment().getId());

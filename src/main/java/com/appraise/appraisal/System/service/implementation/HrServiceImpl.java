@@ -45,7 +45,10 @@ public class HrServiceImpl implements HrService {
 
     @Override
     public DashboardResponse getDashboard() {
-        List<Appraisal> all = appraisalRepository.findAllWithRelationships();
+        List<Appraisal> all = appraisalRepository.findAllWithRelationships()
+                .stream()
+                .filter(a -> a.getEmployee() == null || a.getEmployee().getRole() != Roles.MANAGER)
+                .toList();
         List<User> allUsers = userRepository.findAllWithRelationships();
 
         long activeEmployees = allUsers.stream()
@@ -96,7 +99,7 @@ public class HrServiceImpl implements HrService {
 
         List<User> targets = userRepository.findByDepartmentIdWithRelationships(request.getDepartmentId())
                 .stream()
-                .filter(u -> u.getRole() != Roles.HR)
+                .filter(u -> u.getRole() != Roles.HR && u.getRole() != Roles.MANAGER)
                 .toList();
 
         return createForTargets(targets, request.getCycleId(), true);
@@ -107,7 +110,7 @@ public class HrServiceImpl implements HrService {
     public List<AppraisalResponse> createAppraisalsForAllEmployees(CreateAppraisalRequest request) {
         List<User> targets = userRepository.findAllWithRelationships()
                 .stream()
-                .filter(u -> u.getRole() != Roles.HR)
+                .filter(u -> u.getRole() != Roles.HR && u.getRole() != Roles.MANAGER)
                 .toList();
 
         return createForTargets(targets, request.getCycleId(), true);

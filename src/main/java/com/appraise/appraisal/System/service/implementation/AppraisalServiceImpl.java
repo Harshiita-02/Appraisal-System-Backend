@@ -8,6 +8,7 @@ import com.appraise.appraisal.System.entity.User;
 import com.appraise.appraisal.System.entity.enums.AppraisalStatus;
 import com.appraise.appraisal.System.exception.BadRequestException;
 import com.appraise.appraisal.System.exception.DuplicateResourceException;
+import com.appraise.appraisal.System.entity.enums.Roles;
 import com.appraise.appraisal.System.exception.ResourceNotFoundException;
 import com.appraise.appraisal.System.mapper.AppraisalMapper;
 import com.appraise.appraisal.System.repository.AppraisalCycleRepository;
@@ -77,6 +78,7 @@ public class AppraisalServiceImpl implements AppraisalService {
     public List<AppraisalResponse> getAllAppraisals() {
         return appraisalRepository.findAllWithRelationships()
                 .stream()
+                .filter(a -> a.getEmployee() == null || a.getEmployee().getRole() != Roles.MANAGER)
                 .map(AppraisalMapper::toResponse)
                 .toList();
     }
