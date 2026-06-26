@@ -10,6 +10,7 @@ import com.appraise.appraisal.System.exception.BadRequestException;
 import com.appraise.appraisal.System.exception.DuplicateResourceException;
 import com.appraise.appraisal.System.exception.ResourceNotFoundException;
 import com.appraise.appraisal.System.mapper.UserMapper;
+import com.appraise.appraisal.System.repository.AppraisalRepository;
 import com.appraise.appraisal.System.repository.DepartmentRepository;
 import com.appraise.appraisal.System.repository.UserRepository;
 import com.appraise.appraisal.System.service.UserService;
@@ -27,6 +28,7 @@ public class UserServiceImpl implements UserService {
     private final UserRepository userRepository;
     private final DepartmentRepository departmentRepository;
     private final UserMapper userMapper;
+    private final AppraisalRepository appraisalRepository;
 
     @Override
     @Transactional
@@ -125,8 +127,22 @@ public class UserServiceImpl implements UserService {
     public void deleteUser(Long id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with ID: " + id));
-        userRepository.delete(user);
+
+        boolean hasAppraisals = appraisalRepository.existsByEmployeeId(id)
+                || appraisalRepository.existsByManagerId(id);
+        boolean managesOthers = userRepository.existsByManagerId(id);
+
+        if (hasAppraisals || managesOthers) {
+            throw new BadRequestException(
+                    "This employee has appraisal history or direct reports and can't be permanently deleted. " +
+                            "Deactivate them instead to preserve their records.");
+        }
+
+        userRepository.deleteById(id);
     }
+
+
+
 
     @Override
     @Transactional

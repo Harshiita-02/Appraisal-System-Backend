@@ -3,10 +3,13 @@ package com.appraise.appraisal.System.service.implementation;
 import com.appraise.appraisal.System.dtos.*;
 import com.appraise.appraisal.System.entity.*;
 import com.appraise.appraisal.System.entity.enums.AppraisalStatus;
+import com.appraise.appraisal.System.entity.enums.GoalEmployeeResponse;
+import com.appraise.appraisal.System.entity.enums.GoalStatus;
 import com.appraise.appraisal.System.entity.enums.Roles;
 import com.appraise.appraisal.System.exception.BadRequestException;
 import com.appraise.appraisal.System.exception.ResourceNotFoundException;
 import com.appraise.appraisal.System.mapper.AppraisalMapper;
+import com.appraise.appraisal.System.mapper.GoalMapper;
 import com.appraise.appraisal.System.repository.*;
 import com.appraise.appraisal.System.service.HrService;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +40,8 @@ public class HrServiceImpl implements HrService {
     private final UserRepository userRepository;
     private final AppraisalCycleRepository cycleRepository;
     private final DepartmentRepository departmentRepository;
+    private final GoalRepository goalRepository;
+    private final GoalMapper goalMapper;
 
     @Override
     public DashboardResponse getDashboard() {
@@ -114,11 +119,14 @@ public class HrServiceImpl implements HrService {
         Appraisal appraisal = appraisalRepository.findByIdWithRelationships(appraisalId)
                 .orElseThrow(() -> new ResourceNotFoundException("Appraisal not found with ID: " + appraisalId));
 
-        int currentIndex = indexOf(appraisal.getStatus());
-        if (currentIndex == WORKFLOW_ORDER.length - 1) {
-            throw new BadRequestException("Appraisal not found or already complete");
+        AppraisalStatus current = appraisal.getStatus();
+
+        if (current != AppraisalStatus.MANAGER_REVIEWED && current != AppraisalStatus.APPROVED) {
+            throw new BadRequestException(
+                    "HR can only advance appraisals that are Manager Reviewed or Approved.");
         }
 
+        int currentIndex = indexOf(current);
         appraisal.setStatus(WORKFLOW_ORDER[currentIndex + 1]);
         return AppraisalMapper.toResponse(appraisalRepository.save(appraisal));
     }
@@ -245,5 +253,87 @@ public class HrServiceImpl implements HrService {
             if (WORKFLOW_ORDER[i] == status) return i;
         }
         throw new BadRequestException("Unknown appraisal status: " + status);
+    }
+
+    // -------------------------------------------------------------------------
+    // Goal management — HR assigns goals to managers and confirms completion
+    // -------------------------------------------------------------------------
+
+    @Override
+    public List<GoalResponse> getAllGoals() {
+        return goalRepository.findAllWithRelationships()
+                .stream()
+                .map(goalMapper::toResponse)
+                .toList();
+    }
+
+    @Override
+    public List<AppraisalResponse> getAssignableAppraisals() {
+        // HR assigns goals to managers, so the pool is every appraisal whose
+        // employee has the MANAGER role.
+        return appraisalRepository.findByEmployeeRoleWithRelationships(Roles.MANAGER)
+                .stream()
+                .map(AppraisalMapper::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public GoalResponse createGoal(GoalRequest request) {
+        if (request == null) {
+            throw new BadRequestException("Goal request cannot be null");
+        }
+
+        Appraisal appraisal = appraisalRepository.findByIdWithRelationships(request.getAppraisalId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Appraisal not found with ID: " + request.getAppraisalId()));
+
+        // Validate the appraisal belongs to a manager
+        if (appraisal.getEmployee().getRole() != Roles.MANAGER) {
+            throw new BadRequestException(
+                    "HR can only assign goals to managers. The selected appraisal belongs to a non-manager user.");
+        }
+
+        Goal goal = new Goal();
+        goal.setTitle(request.getTitle().trim());
+        goal.setDescription(request.getDescription() != null ? request.getDescription().trim() : null);
+        goal.setDueDate(request.getDueDate());
+        goal.setUser(appraisal.getEmployee());
+        goal.setAppraisalCycle(appraisal.getCycle());
+        goal.setAppraisal(appraisal);
+        goal.setStatus(GoalStatus.NOT_STARTED);
+        goal.setEmployeeResponse(GoalEmployeeResponse.PENDING);
+
+        return goalMapper.toResponse(goalRepository.save(goal));
+    }
+
+    @Override
+    @Transactional
+    public void deleteGoal(Long goalId) {
+        Goal goal = goalRepository.findById(goalId)
+                .orElseThrow(() -> new ResourceNotFoundException("Goal not found with ID: " + goalId));
+        goalRepository.delete(goal);
+    }
+
+    @Override
+    @Transactional
+    public GoalResponse confirmGoalStatus(Long goalId, boolean completed) {
+        Goal goal = goalRepository.findByIdWithRelationships(goalId)
+                .orElseThrow(() -> new ResourceNotFoundException("Goal not found with ID: " + goalId));
+
+        if (goal.getEmployeeResponse() == GoalEmployeeResponse.PENDING
+                || goal.getEmployeeResponse() == GoalEmployeeResponse.IN_PROGRESS) {
+            throw new BadRequestException(
+                    "Cannot confirm this goal yet — the manager has not submitted a completion response.");
+        }
+
+        if (completed && goal.getEmployeeResponse() == GoalEmployeeResponse.NOT_COMPLETED) {
+            throw new BadRequestException(
+                    "Cannot mark as completed — the manager reported it as not done. " +
+                            "Reset to Not Started if you want them to retry.");
+        }
+
+        goal.setStatus(completed ? GoalStatus.COMPLETED : GoalStatus.NOT_STARTED);
+        return goalMapper.toResponse(goalRepository.save(goal));
     }
 }

@@ -25,6 +25,8 @@ public class HrController {
         return ResponseEntity.ok(hrService.getDashboard());
     }
 
+    // ---- Users -----------------------------------------------------------
+
     @GetMapping("/users")
     public ResponseEntity<List<UserResponse>> getUsers() {
         return ResponseEntity.ok(userService.getAllUsers());
@@ -50,6 +52,14 @@ public class HrController {
         return ResponseEntity.ok(userService.updateUserStatus(id, status));
     }
 
+    @DeleteMapping("/users/{id}")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+        userService.deleteUser(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    // ---- Departments -----------------------------------------------------
+
     @GetMapping("/departments")
     public ResponseEntity<List<DepartmentResponse>> getDepartments() {
         return ResponseEntity.ok(departmentService.getAllDepartments());
@@ -71,6 +81,8 @@ public class HrController {
         departmentService.deleteDepartmentById(id);
         return ResponseEntity.noContent().build();
     }
+
+    // ---- Appraisals ------------------------------------------------------
 
     @GetMapping("/appraisals")
     public ResponseEntity<List<AppraisalResponse>> getAppraisals() {
@@ -94,6 +106,13 @@ public class HrController {
         return ResponseEntity.ok(hrService.createAppraisalsForAllEmployees(request));
     }
 
+    // IMPORTANT: /appraisals/assignable must be declared BEFORE /appraisals/{id}
+    // so Spring matches the literal path "assignable" before treating it as an ID.
+    @GetMapping("/appraisals/assignable")
+    public ResponseEntity<List<AppraisalResponse>> getAssignableAppraisals() {
+        return ResponseEntity.ok(hrService.getAssignableAppraisals());
+    }
+
     @PatchMapping("/appraisals/{id}/status")
     public ResponseEntity<AppraisalResponse> advanceAppraisalStatus(@PathVariable Long id) {
         return ResponseEntity.ok(hrService.advanceAppraisalStatus(id));
@@ -105,6 +124,8 @@ public class HrController {
         return ResponseEntity.noContent().build();
     }
 
+    // ---- Cycles ----------------------------------------------------------
+
     @GetMapping("/cycles")
     public ResponseEntity<List<AppraisalCycleResponse>> getCycles() {
         return ResponseEntity.ok(cycleService.getAllCycles());
@@ -115,14 +136,34 @@ public class HrController {
         return ResponseEntity.ok(cycleService.createCycle(request));
     }
 
+    // ---- Reports ---------------------------------------------------------
+
     @GetMapping("/reports")
     public ResponseEntity<CycleReportResponse> getCycleReport(@RequestParam Long cycleId) {
         return ResponseEntity.ok(hrService.getCycleReport(cycleId));
     }
 
-    @DeleteMapping("/users/{id}")
-    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
-        userService.deleteUser(id);
+    // ---- Goals -----------------------------------------------------------
+
+    @GetMapping("/goals")
+    public ResponseEntity<List<GoalResponse>> getGoals() {
+        return ResponseEntity.ok(hrService.getAllGoals());
+    }
+
+    @PostMapping("/goals")
+    public ResponseEntity<GoalResponse> createGoal(@Valid @RequestBody GoalRequest request) {
+        return ResponseEntity.ok(hrService.createGoal(request));
+    }
+
+    @DeleteMapping("/goals/{id}")
+    public ResponseEntity<Void> deleteGoal(@PathVariable Long id) {
+        hrService.deleteGoal(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/goals/{id}/confirm")
+    public ResponseEntity<GoalResponse> confirmGoalStatus(@PathVariable Long id,
+                                                          @RequestBody ConfirmGoalRequest request) {
+        return ResponseEntity.ok(hrService.confirmGoalStatus(id, request.isCompleted()));
     }
 }

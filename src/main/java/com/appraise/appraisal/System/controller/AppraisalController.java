@@ -35,10 +35,10 @@ public class AppraisalController {
         return ResponseEntity.ok(appraisalService.getAppraisalById(id));
     }
 
-    @DeleteMapping("/{id}")
-    public ResponseEntity<String> deleteAppraisal(@PathVariable Long id) {
+    @DeleteMapping("/appraisals/{id}")
+    public ResponseEntity<Void> deleteAppraisal(@PathVariable Long id) {
         appraisalService.deleteAppraisal(id);
-        return ResponseEntity.ok("Appraisal deleted successfully");
+        return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{id}/status")
@@ -59,4 +59,6 @@ public class AppraisalController {
 
         return ResponseEntity.ok(appraisalService.updateStatus(id, targetStatus));
     }
+
+
 }
