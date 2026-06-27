@@ -13,6 +13,17 @@ public class CorsConfig implements WebMvcConfigurer {
                 .allowedOrigins("http://localhost:5173")
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
+                // NEW: without this, the browser receives the
+                // X-Refreshed-Token header on each response but blocks
+                // JavaScript from reading it (default browser CORS
+                // behavior hides custom response headers unless
+                // explicitly exposed). JwtAuthFilter sends a renewed
+                // token via this header as part of sliding expiry — if
+                // it's not exposed here, the frontend can never see the
+                // refreshed token, and users get logged out after the
+                // token's original 20-minute window regardless of how
+                // active they were.
+                .exposedHeaders("X-Refreshed-Token")
                 .allowCredentials(false);
     }
 }
