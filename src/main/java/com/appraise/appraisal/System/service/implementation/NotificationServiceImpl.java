@@ -80,11 +80,13 @@ public class NotificationServiceImpl implements NotificationService {
                 .toList();
     }
 
-    @Override
-    @Transactional
-    public NotificationResponse markAsRead(Long notificationId) {
+    public NotificationResponse markAsRead(Long notificationId, Long requestingUserId) {
         Notification notification = notificationRepository.findById(notificationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Notification not found with ID: " + notificationId));
+
+        if (notification.getUser() == null || !notification.getUser().getId().equals(requestingUserId)) {
+            throw new BadRequestException("This notification does not belong to the requesting user");
+        }
 
         notification.setIsRead(true);
         Notification updated = notificationRepository.save(notification);

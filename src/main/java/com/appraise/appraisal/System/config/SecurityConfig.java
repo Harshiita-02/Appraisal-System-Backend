@@ -62,6 +62,7 @@ public class SecurityConfig {
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/notifications").hasRole("HR")
                         .requestMatchers("/api/auth/**").permitAll()
                         // Cycles are read-only reference data needed by every
                         // role (managers building reports, employees filtering

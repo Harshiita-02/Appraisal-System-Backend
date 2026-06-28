@@ -7,9 +7,11 @@ import com.appraise.appraisal.System.dtos.GoalResponse;
 import com.appraise.appraisal.System.dtos.SelfAssessmentRequest;
 import com.appraise.appraisal.System.entity.Appraisal;
 import com.appraise.appraisal.System.entity.Goal;
+import com.appraise.appraisal.System.entity.Notification;
 import com.appraise.appraisal.System.entity.enums.AppraisalStatus;
 import com.appraise.appraisal.System.entity.enums.GoalEmployeeResponse;
 import com.appraise.appraisal.System.entity.enums.GoalStatus;
+import com.appraise.appraisal.System.entity.enums.NotificationType;
 import com.appraise.appraisal.System.exception.BadRequestException;
 import com.appraise.appraisal.System.exception.ResourceNotFoundException;
 import com.appraise.appraisal.System.mapper.AppraisalMapper;
@@ -90,7 +92,23 @@ public class EmployeeServiceImpl implements EmployeeService {
         appraisal.setSelfRating(request.getSelfRating());
         appraisal.setStatus(AppraisalStatus.SELF_SUBMITTED);
 
-        return AppraisalMapper.toResponse(appraisalRepository.save(appraisal));
+        Appraisal saved = appraisalRepository.save(appraisal);
+
+        // Notify the manager that this employee's self-assessment is
+        // ready for their review.
+        if (saved.getManager() != null) {
+            Notification notification = new Notification();
+            notification.setUser(saved.getManager());
+            notification.setTitle("Self-Assessment Submitted");
+            notification.setMessage(
+                    saved.getEmployee().getName() + " has submitted their self-assessment for "
+                            + saved.getCycle().getName() + ". It's ready for your review.");
+            notification.setType(NotificationType.APPRAISAL);
+            notification.setIsRead(false);
+            notificationRepository.save(notification);
+        }
+
+        return AppraisalMapper.toResponse(saved);
     }
 
     @Override

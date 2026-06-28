@@ -4,10 +4,12 @@ import com.appraise.appraisal.System.dtos.*;
 import com.appraise.appraisal.System.entity.Appraisal;
 import com.appraise.appraisal.System.entity.AppraisalCycle;
 import com.appraise.appraisal.System.entity.Goal;
+import com.appraise.appraisal.System.entity.Notification;
 import com.appraise.appraisal.System.entity.User;
 import com.appraise.appraisal.System.entity.enums.AppraisalStatus;
 import com.appraise.appraisal.System.entity.enums.GoalEmployeeResponse;
 import com.appraise.appraisal.System.entity.enums.GoalStatus;
+import com.appraise.appraisal.System.entity.enums.NotificationType;
 import com.appraise.appraisal.System.exception.BadRequestException;
 import com.appraise.appraisal.System.exception.ResourceNotFoundException;
 import com.appraise.appraisal.System.mapper.AppraisalMapper;
@@ -15,6 +17,7 @@ import com.appraise.appraisal.System.mapper.GoalMapper;
 import com.appraise.appraisal.System.repository.AppraisalCycleRepository;
 import com.appraise.appraisal.System.repository.AppraisalRepository;
 import com.appraise.appraisal.System.repository.GoalRepository;
+import com.appraise.appraisal.System.repository.NotificationRepository;
 import com.appraise.appraisal.System.repository.UserRepository;
 import com.appraise.appraisal.System.service.ManagerService;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +35,7 @@ public class ManagerServiceImpl implements ManagerService {
     private final UserRepository userRepository;
     private final GoalRepository goalRepository;
     private final AppraisalCycleRepository cycleRepository;
+    private final NotificationRepository notificationRepository;
     private final GoalMapper goalMapper;
 
     @Override
@@ -185,7 +189,22 @@ public class ManagerServiceImpl implements ManagerService {
         goal.setStatus(GoalStatus.NOT_STARTED);
         goal.setEmployeeResponse(GoalEmployeeResponse.PENDING);
 
-        return goalMapper.toResponse(goalRepository.save(goal));
+        Goal saved = goalRepository.save(goal);
+
+        // Notify the employee a new goal has been assigned to them.
+        if (saved.getUser() != null) {
+            Notification notification = new Notification();
+            notification.setUser(saved.getUser());
+            notification.setTitle("New Goal Assigned");
+            notification.setMessage(
+                    "Your manager has assigned you a new goal: \"" + saved.getTitle()
+                            + "\" — due " + saved.getDueDate() + ".");
+            notification.setType(NotificationType.GOAL);
+            notification.setIsRead(false);
+            notificationRepository.save(notification);
+        }
+
+        return goalMapper.toResponse(saved);
     }
 
     @Override
@@ -275,8 +294,23 @@ public class ManagerServiceImpl implements ManagerService {
         appraisal.setManagerComments(request.getManagerComments());
         appraisal.setStatus(submit ? AppraisalStatus.MANAGER_REVIEWED : AppraisalStatus.MANAGER_DRAFT);
 
+        Appraisal saved = appraisalRepository.save(appraisal);
 
-        return AppraisalMapper.toResponse(appraisalRepository.save(appraisal));
+        // Only notify the employee on a real submit — a draft save isn't
+        // final yet, so there's nothing worth interrupting them about.
+        if (submit && saved.getEmployee() != null) {
+            Notification notification = new Notification();
+            notification.setUser(saved.getEmployee());
+            notification.setTitle("Manager Review Submitted");
+            notification.setMessage(
+                    saved.getManager().getName() + " has reviewed your appraisal for "
+                            + saved.getCycle().getName() + ". Check your appraisal for feedback and rating.");
+            notification.setType(NotificationType.REVIEW);
+            notification.setIsRead(false);
+            notificationRepository.save(notification);
+        }
+
+        return AppraisalMapper.toResponse(saved);
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
