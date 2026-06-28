@@ -4,6 +4,7 @@ import com.appraise.appraisal.System.config.security.JwtUtil;
 import com.appraise.appraisal.System.dtos.LoginRequest;
 import com.appraise.appraisal.System.dtos.LoginResponse;
 import com.appraise.appraisal.System.entity.User;
+import com.appraise.appraisal.System.exception.InvalidCredentialsException;
 import com.appraise.appraisal.System.repository.UserRepository;
 import com.appraise.appraisal.System.service.AuthService;
 import lombok.RequiredArgsConstructor;
@@ -22,10 +23,10 @@ public class AuthServiceImpl implements AuthService {
     public LoginResponse login(LoginRequest request) {
 
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new RuntimeException("Invalid credentials"));
+                .orElseThrow(() -> new InvalidCredentialsException("Invalid credentials"));
 
         if (!passwordMatches(request.getPassword(), user)) {
-            throw new RuntimeException("Invalid credentials");
+            throw new InvalidCredentialsException("Invalid credentials");
         }
 
         String token = jwtUtil.generateToken(user.getEmail(), user.getRole().name());
