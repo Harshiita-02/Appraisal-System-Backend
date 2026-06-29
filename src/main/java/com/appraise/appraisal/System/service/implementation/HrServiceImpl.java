@@ -15,6 +15,7 @@ import com.appraise.appraisal.System.service.HrService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.appraise.appraisal.System.entity.enums.NotificationType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +43,7 @@ public class HrServiceImpl implements HrService {
     private final DepartmentRepository departmentRepository;
     private final GoalRepository goalRepository;
     private final GoalMapper goalMapper;
+    private final NotificationRepository notificationRepository;
 
     @Override
     public DashboardResponse getDashboard() {
@@ -84,7 +86,9 @@ public class HrServiceImpl implements HrService {
         }
 
         Appraisal appraisal = buildAppraisalFor(employee, request.getCycleId());
-        return AppraisalMapper.toResponse(appraisalRepository.save(appraisal));
+        Appraisal saved = appraisalRepository.save(appraisal);
+        notifyAppraisalCreated(saved);
+        return AppraisalMapper.toResponse(saved);
     }
 
     @Override
@@ -130,8 +134,81 @@ public class HrServiceImpl implements HrService {
         }
 
         int currentIndex = indexOf(current);
-        appraisal.setStatus(WORKFLOW_ORDER[currentIndex + 1]);
-        return AppraisalMapper.toResponse(appraisalRepository.save(appraisal));
+        AppraisalStatus next = WORKFLOW_ORDER[currentIndex + 1];
+        appraisal.setStatus(next);
+        Appraisal saved = appraisalRepository.save(appraisal);
+
+        if (next == AppraisalStatus.APPROVED) {
+            // MANAGER_REVIEWED -> APPROVED: tell both the employee and
+            // their manager that HR has signed off.
+            notifyIfPresent(saved.getEmployee(), "Appraisal Approved",
+                    "Your appraisal for " + saved.getCycle().getName()
+                            + " has been approved by HR.",
+                    NotificationType.SUCCESS);
+            notifyIfPresent(saved.getManager(), "Appraisal Approved",
+                    saved.getEmployee().getName() + "'s appraisal for " + saved.getCycle().getName()
+                            + " has been approved by HR.",
+                    NotificationType.SUCCESS);
+        } else if (next == AppraisalStatus.ACKNOWLEDGED) {
+            // APPROVED -> ACKNOWLEDGED, done here by HR directly rather
+            // than the employee's own acknowledgeAppraisal action — so
+            // notify the manager AND the employee, since neither of
+            // them is the one who triggered this transition.
+            notifyIfPresent(saved.getEmployee(), "Appraisal Acknowledged",
+                    "Your appraisal for " + saved.getCycle().getName()
+                            + " has been marked as acknowledged by HR. This cycle is now complete.",
+                    NotificationType.APPRAISAL);
+            notifyIfPresent(saved.getManager(), "Appraisal Acknowledged",
+                    saved.getEmployee().getName() + "'s appraisal for " + saved.getCycle().getName()
+                            + " has been marked as acknowledged by HR. This cycle is now complete.",
+                    NotificationType.APPRAISAL);
+        }
+
+        return AppraisalMapper.toResponse(saved);
+    }
+
+    // Small helper so each notification call above isn't repeating the
+// same null-check + build + save boilerplate three times over.
+    private void notifyIfPresent(User recipient, String title, String message, NotificationType type) {
+        if (recipient == null) return;
+        Notification notification = new Notification();
+        notification.setUser(recipient);
+        notification.setTitle(title);
+        notification.setMessage(message);
+        notification.setType(type);
+        notification.setIsRead(false);
+        notificationRepository.save(notification);
+    }
+
+    // Notifies both the employee and their manager that a new appraisal
+// cycle has started for them. Used by createSingleAppraisal AND
+// createForTargets (the shared path behind both bulk-create modes),
+// so this covers all three ways HR can create appraisals from one
+// place.
+    private void notifyAppraisalCreated(Appraisal appraisal) {
+        if (appraisal.getEmployee() != null) {
+            Notification employeeNotification = new Notification();
+            employeeNotification.setUser(appraisal.getEmployee());
+            employeeNotification.setTitle("New Appraisal Created");
+            employeeNotification.setMessage(
+                    "A new appraisal for " + appraisal.getCycle().getName()
+                            + " has been created for you. Fill out your self-assessment when ready.");
+            employeeNotification.setType(NotificationType.APPRAISAL);
+            employeeNotification.setIsRead(false);
+            notificationRepository.save(employeeNotification);
+        }
+
+        if (appraisal.getManager() != null) {
+            Notification managerNotification = new Notification();
+            managerNotification.setUser(appraisal.getManager());
+            managerNotification.setTitle("New Appraisal Created");
+            managerNotification.setMessage(
+                    "A new appraisal for " + appraisal.getCycle().getName() + " has been created for "
+                            + appraisal.getEmployee().getName() + ", one of your reports.");
+            managerNotification.setType(NotificationType.APPRAISAL);
+            managerNotification.setIsRead(false);
+            notificationRepository.save(managerNotification);
+        }
     }
 
     @Override
@@ -231,6 +308,7 @@ public class HrServiceImpl implements HrService {
         }
 
         List<Appraisal> saved = appraisalRepository.saveAll(created);
+        saved.forEach(this::notifyAppraisalCreated);
         return saved.stream().map(AppraisalMapper::toResponse).toList();
     }
 

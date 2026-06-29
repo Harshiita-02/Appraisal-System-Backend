@@ -29,4 +29,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     @Query("SELECT u FROM User u LEFT JOIN FETCH u.department LEFT JOIN FETCH u.manager WHERE u.department.id = :departmentId")
     List<User> findByDepartmentIdWithRelationships(@Param("departmentId") Long departmentId);
+
+    List<User> findByRole(com.appraise.appraisal.System.entity.enums.Roles role);
 }

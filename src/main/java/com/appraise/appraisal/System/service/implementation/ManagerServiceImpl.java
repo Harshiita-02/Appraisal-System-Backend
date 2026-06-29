@@ -298,6 +298,8 @@ public class ManagerServiceImpl implements ManagerService {
 
         // Only notify the employee on a real submit — a draft save isn't
         // final yet, so there's nothing worth interrupting them about.
+        // Only notify the employee on a real submit — a draft save isn't
+// final yet, so there's nothing worth interrupting them about.
         if (submit && saved.getEmployee() != null) {
             Notification notification = new Notification();
             notification.setUser(saved.getEmployee());
@@ -308,6 +310,24 @@ public class ManagerServiceImpl implements ManagerService {
             notification.setType(NotificationType.REVIEW);
             notification.setIsRead(false);
             notificationRepository.save(notification);
+
+            // Also notify every HR user — the appraisal is now sitting
+            // at MANAGER_REVIEWED, which means it's HR's turn to
+            // approve it. There's no single "the HR person" tied to an
+            // appraisal the way employee/manager are, so this notifies
+            // ALL HR users rather than picking just one.
+            for (User hrUser : userRepository.findByRole(com.appraise.appraisal.System.entity.enums.Roles.HR)) {
+                Notification hrNotification = new Notification();
+                hrNotification.setUser(hrUser);
+                hrNotification.setTitle("Appraisal Ready for Approval");
+                hrNotification.setMessage(
+                        saved.getEmployee().getName() + "'s appraisal for " + saved.getCycle().getName()
+                                + " has been reviewed by " + saved.getManager().getName()
+                                + " and is ready for your approval.");
+                hrNotification.setType(NotificationType.REVIEW);
+                hrNotification.setIsRead(false);
+                notificationRepository.save(hrNotification);
+            }
         }
 
         return AppraisalMapper.toResponse(saved);

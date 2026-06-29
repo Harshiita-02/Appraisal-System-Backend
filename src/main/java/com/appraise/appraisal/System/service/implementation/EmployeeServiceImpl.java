@@ -122,7 +122,24 @@ public class EmployeeServiceImpl implements EmployeeService {
         }
 
         appraisal.setStatus(AppraisalStatus.ACKNOWLEDGED);
-        return AppraisalMapper.toResponse(appraisalRepository.save(appraisal));
+        Appraisal saved = appraisalRepository.save(appraisal);
+
+        // Notify the manager that this employee has acknowledged the
+        // appraisal — closes the loop for them, since they may not
+        // otherwise know the cycle has fully completed.
+        if (saved.getManager() != null) {
+            Notification notification = new Notification();
+            notification.setUser(saved.getManager());
+            notification.setTitle("Appraisal Acknowledged");
+            notification.setMessage(
+                    saved.getEmployee().getName() + " has acknowledged their appraisal for "
+                            + saved.getCycle().getName() + ". This appraisal cycle is now complete.");
+            notification.setType(NotificationType.APPRAISAL);
+            notification.setIsRead(false);
+            notificationRepository.save(notification);
+        }
+
+        return AppraisalMapper.toResponse(saved);
     }
 
     @Override
