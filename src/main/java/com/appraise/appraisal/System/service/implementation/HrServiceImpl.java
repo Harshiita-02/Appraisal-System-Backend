@@ -5,6 +5,7 @@ import com.appraise.appraisal.System.entity.*;
 import com.appraise.appraisal.System.entity.enums.AppraisalStatus;
 import com.appraise.appraisal.System.entity.enums.GoalEmployeeResponse;
 import com.appraise.appraisal.System.entity.enums.GoalStatus;
+import com.appraise.appraisal.System.entity.enums.NotificationType;
 import com.appraise.appraisal.System.entity.enums.Roles;
 import com.appraise.appraisal.System.exception.BadRequestException;
 import com.appraise.appraisal.System.exception.ResourceNotFoundException;
@@ -12,10 +13,10 @@ import com.appraise.appraisal.System.mapper.AppraisalMapper;
 import com.appraise.appraisal.System.mapper.GoalMapper;
 import com.appraise.appraisal.System.repository.*;
 import com.appraise.appraisal.System.service.HrService;
+import com.appraise.appraisal.System.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.appraise.appraisal.System.entity.enums.NotificationType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -44,6 +45,7 @@ public class HrServiceImpl implements HrService {
     private final GoalRepository goalRepository;
     private final GoalMapper goalMapper;
     private final NotificationRepository notificationRepository;
+    private final NotificationService notificationService;
 
     @Override
     public DashboardResponse getDashboard() {
@@ -129,8 +131,7 @@ public class HrServiceImpl implements HrService {
         AppraisalStatus current = appraisal.getStatus();
 
         if (current != AppraisalStatus.MANAGER_REVIEWED && current != AppraisalStatus.APPROVED) {
-            throw new BadRequestException(
-                    "HR can only advance appraisals that are Manager Reviewed or Approved.");
+            throw new BadRequestException("HR can only advance appraisals that are Manager Reviewed or Approved.");
         }
 
         int currentIndex = indexOf(current);
@@ -139,75 +140,66 @@ public class HrServiceImpl implements HrService {
         Appraisal saved = appraisalRepository.save(appraisal);
 
         if (next == AppraisalStatus.APPROVED) {
-            // MANAGER_REVIEWED -> APPROVED: tell both the employee and
-            // their manager that HR has signed off.
-            notifyIfPresent(saved.getEmployee(), "Appraisal Approved",
-                    "Your appraisal for " + saved.getCycle().getName()
-                            + " has been approved by HR.",
-                    NotificationType.SUCCESS);
-            notifyIfPresent(saved.getManager(), "Appraisal Approved",
-                    saved.getEmployee().getName() + "'s appraisal for " + saved.getCycle().getName()
-                            + " has been approved by HR.",
-                    NotificationType.SUCCESS);
+            // Notify employee and manager — also sends emails
+            if (saved.getEmployee() != null) {
+                notificationService.createInternalNotification(
+                        saved.getEmployee(),
+                        "Appraisal Approved",
+                        "Your appraisal for " + saved.getCycle().getName() + " has been approved by HR.",
+                        NotificationType.SUCCESS
+                );
+            }
+            if (saved.getManager() != null) {
+                notificationService.createInternalNotification(
+                        saved.getManager(),
+                        "Appraisal Approved",
+                        saved.getEmployee().getName() + "'s appraisal for " + saved.getCycle().getName()
+                                + " has been approved by HR.",
+                        NotificationType.SUCCESS
+                );
+            }
         } else if (next == AppraisalStatus.ACKNOWLEDGED) {
-            // APPROVED -> ACKNOWLEDGED, done here by HR directly rather
-            // than the employee's own acknowledgeAppraisal action — so
-            // notify the manager AND the employee, since neither of
-            // them is the one who triggered this transition.
-            notifyIfPresent(saved.getEmployee(), "Appraisal Acknowledged",
-                    "Your appraisal for " + saved.getCycle().getName()
-                            + " has been marked as acknowledged by HR. This cycle is now complete.",
-                    NotificationType.APPRAISAL);
-            notifyIfPresent(saved.getManager(), "Appraisal Acknowledged",
-                    saved.getEmployee().getName() + "'s appraisal for " + saved.getCycle().getName()
-                            + " has been marked as acknowledged by HR. This cycle is now complete.",
-                    NotificationType.APPRAISAL);
+            if (saved.getEmployee() != null) {
+                notificationService.createInternalNotification(
+                        saved.getEmployee(),
+                        "Appraisal Acknowledged",
+                        "Your appraisal for " + saved.getCycle().getName()
+                                + " has been marked as acknowledged by HR. This cycle is now complete.",
+                        NotificationType.APPRAISAL
+                );
+            }
+            if (saved.getManager() != null) {
+                notificationService.createInternalNotification(
+                        saved.getManager(),
+                        "Appraisal Acknowledged",
+                        saved.getEmployee().getName() + "'s appraisal for " + saved.getCycle().getName()
+                                + " has been marked as acknowledged by HR. This cycle is now complete.",
+                        NotificationType.APPRAISAL
+                );
+            }
         }
 
         return AppraisalMapper.toResponse(saved);
     }
 
-    // Small helper so each notification call above isn't repeating the
-// same null-check + build + save boilerplate three times over.
-    private void notifyIfPresent(User recipient, String title, String message, NotificationType type) {
-        if (recipient == null) return;
-        Notification notification = new Notification();
-        notification.setUser(recipient);
-        notification.setTitle(title);
-        notification.setMessage(message);
-        notification.setType(type);
-        notification.setIsRead(false);
-        notificationRepository.save(notification);
-    }
-
-    // Notifies both the employee and their manager that a new appraisal
-// cycle has started for them. Used by createSingleAppraisal AND
-// createForTargets (the shared path behind both bulk-create modes),
-// so this covers all three ways HR can create appraisals from one
-// place.
     private void notifyAppraisalCreated(Appraisal appraisal) {
         if (appraisal.getEmployee() != null) {
-            Notification employeeNotification = new Notification();
-            employeeNotification.setUser(appraisal.getEmployee());
-            employeeNotification.setTitle("New Appraisal Created");
-            employeeNotification.setMessage(
+            notificationService.createInternalNotification(
+                    appraisal.getEmployee(),
+                    "New Appraisal Created",
                     "A new appraisal for " + appraisal.getCycle().getName()
-                            + " has been created for you. Fill out your self-assessment when ready.");
-            employeeNotification.setType(NotificationType.APPRAISAL);
-            employeeNotification.setIsRead(false);
-            notificationRepository.save(employeeNotification);
+                            + " has been created for you. Fill out your self-assessment when ready.",
+                    NotificationType.APPRAISAL
+            );
         }
-
         if (appraisal.getManager() != null) {
-            Notification managerNotification = new Notification();
-            managerNotification.setUser(appraisal.getManager());
-            managerNotification.setTitle("New Appraisal Created");
-            managerNotification.setMessage(
+            notificationService.createInternalNotification(
+                    appraisal.getManager(),
+                    "New Appraisal Created",
                     "A new appraisal for " + appraisal.getCycle().getName() + " has been created for "
-                            + appraisal.getEmployee().getName() + ", one of your reports.");
-            managerNotification.setType(NotificationType.APPRAISAL);
-            managerNotification.setIsRead(false);
-            notificationRepository.save(managerNotification);
+                            + appraisal.getEmployee().getName() + ", one of your reports.",
+                    NotificationType.APPRAISAL
+            );
         }
     }
 
@@ -256,7 +248,6 @@ public class HrServiceImpl implements HrService {
                     Double deptAvg = deptRated.isEmpty()
                             ? null
                             : Math.round(deptRated.stream().mapToDouble(Appraisal::getSelfRating).average().orElse(0) * 10) / 10.0;
-
                     return new DepartmentReportRow(
                             dept.getName(),
                             dept.getUsers() != null ? dept.getUsers().size() : 0,
@@ -297,9 +288,7 @@ public class HrServiceImpl implements HrService {
 
         List<Appraisal> created = new ArrayList<>();
         for (User employee : targets) {
-            if (appraisalRepository.existsByEmployeeIdAndCycleId(employee.getId(), cycleId)) {
-                continue;
-            }
+            if (appraisalRepository.existsByEmployeeIdAndCycleId(employee.getId(), cycleId)) continue;
             created.add(buildAppraisalFor(employee, cycleId));
         }
 
@@ -336,43 +325,27 @@ public class HrServiceImpl implements HrService {
         throw new BadRequestException("Unknown appraisal status: " + status);
     }
 
-    // -------------------------------------------------------------------------
-    // Goal management — HR assigns goals to managers and confirms completion
-    // -------------------------------------------------------------------------
-
     @Override
     public List<GoalResponse> getAllGoals() {
-        return goalRepository.findAllWithRelationships()
-                .stream()
-                .map(goalMapper::toResponse)
-                .toList();
+        return goalRepository.findAllWithRelationships().stream().map(goalMapper::toResponse).toList();
     }
 
     @Override
     public List<AppraisalResponse> getAssignableAppraisals() {
-        // HR assigns goals to managers, so the pool is every appraisal whose
-        // employee has the MANAGER role.
         return appraisalRepository.findByEmployeeRoleWithRelationships(Roles.MANAGER)
-                .stream()
-                .map(AppraisalMapper::toResponse)
-                .toList();
+                .stream().map(AppraisalMapper::toResponse).toList();
     }
 
     @Override
     @Transactional
     public GoalResponse createGoal(GoalRequest request) {
-        if (request == null) {
-            throw new BadRequestException("Goal request cannot be null");
-        }
+        if (request == null) throw new BadRequestException("Goal request cannot be null");
 
         Appraisal appraisal = appraisalRepository.findByIdWithRelationships(request.getAppraisalId())
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Appraisal not found with ID: " + request.getAppraisalId()));
+                .orElseThrow(() -> new ResourceNotFoundException("Appraisal not found with ID: " + request.getAppraisalId()));
 
-        // Validate the appraisal belongs to a manager
         if (appraisal.getEmployee().getRole() != Roles.MANAGER) {
-            throw new BadRequestException(
-                    "HR can only assign goals to managers. The selected appraisal belongs to a non-manager user.");
+            throw new BadRequestException("HR can only assign goals to managers.");
         }
 
         Goal goal = new Goal();
@@ -404,14 +377,11 @@ public class HrServiceImpl implements HrService {
 
         if (goal.getEmployeeResponse() == GoalEmployeeResponse.PENDING
                 || goal.getEmployeeResponse() == GoalEmployeeResponse.IN_PROGRESS) {
-            throw new BadRequestException(
-                    "Cannot confirm this goal yet — the manager has not submitted a completion response.");
+            throw new BadRequestException("Cannot confirm this goal yet — the manager has not submitted a completion response.");
         }
 
         if (completed && goal.getEmployeeResponse() == GoalEmployeeResponse.NOT_COMPLETED) {
-            throw new BadRequestException(
-                    "Cannot mark as completed — the manager reported it as not done. " +
-                            "Reset to Not Started if you want them to retry.");
+            throw new BadRequestException("Cannot mark as completed — the manager reported it as not done.");
         }
 
         goal.setStatus(completed ? GoalStatus.COMPLETED : GoalStatus.NOT_STARTED);

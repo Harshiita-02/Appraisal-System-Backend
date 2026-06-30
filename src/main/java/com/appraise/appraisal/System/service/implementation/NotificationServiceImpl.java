@@ -10,13 +10,16 @@ import com.appraise.appraisal.System.exception.ResourceNotFoundException;
 import com.appraise.appraisal.System.mapper.NotificationMapper;
 import com.appraise.appraisal.System.repository.NotificationRepository;
 import com.appraise.appraisal.System.repository.UserRepository;
+import com.appraise.appraisal.System.service.EmailService;
 import com.appraise.appraisal.System.service.NotificationService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -24,6 +27,7 @@ public class NotificationServiceImpl implements NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
+    private final EmailService emailService;
 
     @Override
     @Transactional
@@ -33,22 +37,30 @@ public class NotificationServiceImpl implements NotificationService {
         }
 
         User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new ResourceNotFoundException("Target recipient user not found with ID: " + request.getUserId()));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Target recipient user not found with ID: " + request.getUserId()));
 
         Notification notification = NotificationMapper.toEntity(request, user);
         Notification saved = notificationRepository.save(notification);
+
+        log.info("=== CALLING EMAIL for sendNotification to={}", user.getEmail());
+        emailService.sendNotificationEmail(
+                user.getEmail(),
+                user.getName(),
+                saved.getTitle(),
+                saved.getMessage(),
+                saved.getType()
+        );
+
         return NotificationMapper.toResponse(saved);
     }
 
-    /**
-     * Internal helper — creates and persists a notification without going through the DTO layer.
-     * Called by other services (AppraisalService, ReviewService, GoalService) to auto-notify users.
-     */
     @Override
     @Transactional
     public void createInternalNotification(User user, String title, String message, NotificationType type) {
         if (user == null) return;
 
+        // 1. Save in-app notification
         Notification notification = new Notification();
         notification.setUser(user);
         notification.setTitle(title);
@@ -56,6 +68,16 @@ public class NotificationServiceImpl implements NotificationService {
         notification.setType(type);
         notification.setIsRead(false);
         notificationRepository.save(notification);
+
+        // 2. Send email
+        log.info("=== CALLING EMAIL for createInternalNotification to={} subject={}", user.getEmail(), title);
+        emailService.sendNotificationEmail(
+                user.getEmail(),
+                user.getName(),
+                title,
+                message,
+                type
+        );
     }
 
     @Override
@@ -80,12 +102,17 @@ public class NotificationServiceImpl implements NotificationService {
                 .toList();
     }
 
+    @Override
+    @Transactional
     public NotificationResponse markAsRead(Long notificationId, Long requestingUserId) {
         Notification notification = notificationRepository.findById(notificationId)
-                .orElseThrow(() -> new ResourceNotFoundException("Notification not found with ID: " + notificationId));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Notification not found with ID: " + notificationId));
 
-        if (notification.getUser() == null || !notification.getUser().getId().equals(requestingUserId)) {
-            throw new BadRequestException("This notification does not belong to the requesting user");
+        if (notification.getUser() == null
+                || !notification.getUser().getId().equals(requestingUserId)) {
+            throw new BadRequestException(
+                    "This notification does not belong to the requesting user");
         }
 
         notification.setIsRead(true);
@@ -99,7 +126,8 @@ public class NotificationServiceImpl implements NotificationService {
         if (!userRepository.existsById(userId)) {
             throw new ResourceNotFoundException("User not found with ID: " + userId);
         }
-        List<Notification> unread = notificationRepository.findByUserIdAndIsReadFalseWithRelationships(userId);
+        List<Notification> unread =
+                notificationRepository.findByUserIdAndIsReadFalseWithRelationships(userId);
         unread.forEach(n -> n.setIsRead(true));
         notificationRepository.saveAll(unread);
     }

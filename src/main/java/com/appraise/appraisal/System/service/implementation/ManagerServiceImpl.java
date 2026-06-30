@@ -4,12 +4,12 @@ import com.appraise.appraisal.System.dtos.*;
 import com.appraise.appraisal.System.entity.Appraisal;
 import com.appraise.appraisal.System.entity.AppraisalCycle;
 import com.appraise.appraisal.System.entity.Goal;
-import com.appraise.appraisal.System.entity.Notification;
 import com.appraise.appraisal.System.entity.User;
 import com.appraise.appraisal.System.entity.enums.AppraisalStatus;
 import com.appraise.appraisal.System.entity.enums.GoalEmployeeResponse;
 import com.appraise.appraisal.System.entity.enums.GoalStatus;
 import com.appraise.appraisal.System.entity.enums.NotificationType;
+import com.appraise.appraisal.System.entity.enums.Roles;
 import com.appraise.appraisal.System.exception.BadRequestException;
 import com.appraise.appraisal.System.exception.ResourceNotFoundException;
 import com.appraise.appraisal.System.mapper.AppraisalMapper;
@@ -20,6 +20,7 @@ import com.appraise.appraisal.System.repository.GoalRepository;
 import com.appraise.appraisal.System.repository.NotificationRepository;
 import com.appraise.appraisal.System.repository.UserRepository;
 import com.appraise.appraisal.System.service.ManagerService;
+import com.appraise.appraisal.System.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +38,7 @@ public class ManagerServiceImpl implements ManagerService {
     private final AppraisalCycleRepository cycleRepository;
     private final NotificationRepository notificationRepository;
     private final GoalMapper goalMapper;
+    private final NotificationService notificationService;
 
     @Override
     public ManagerDashboardResponse getDashboard(Long managerId) {
@@ -45,11 +47,9 @@ public class ManagerServiceImpl implements ManagerService {
 
         long teamSize = userRepository.findByManagerIdWithRelationships(managerId).size();
         long awaitingMyReview = teamAppraisals.stream()
-                .filter(a -> a.getStatus() == AppraisalStatus.SELF_SUBMITTED)
-                .count();
+                .filter(a -> a.getStatus() == AppraisalStatus.SELF_SUBMITTED).count();
         long completed = teamAppraisals.stream()
-                .filter(a -> a.getStatus() == AppraisalStatus.ACKNOWLEDGED)
-                .count();
+                .filter(a -> a.getStatus() == AppraisalStatus.ACKNOWLEDGED).count();
 
         ManagerDashboardSummary summary = new ManagerDashboardSummary(
                 teamSize, teamAppraisals.size(), awaitingMyReview, completed);
@@ -63,23 +63,17 @@ public class ManagerServiceImpl implements ManagerService {
 
     @Override
     public List<TeamMemberResponse> getTeam(Long managerId) {
-        return userRepository.findByManagerIdWithRelationships(managerId)
-                .stream()
+        return userRepository.findByManagerIdWithRelationships(managerId).stream()
                 .map(u -> new TeamMemberResponse(
-                        u.getId(),
-                        u.getName(),
-                        u.getJobTitle(),
+                        u.getId(), u.getName(), u.getJobTitle(),
                         u.getDepartment() != null ? u.getDepartment().getName() : null,
-                        u.getEmail(),
-                        u.getStatus()
-                ))
+                        u.getEmail(), u.getStatus()))
                 .toList();
     }
 
     @Override
     public List<GoalResponse> getTeamGoals(Long managerId) {
-        return appraisalRepository.findByManagerIdWithRelationships(managerId)
-                .stream()
+        return appraisalRepository.findByManagerIdWithRelationships(managerId).stream()
                 .flatMap(a -> goalRepository.findByAppraisalIdWithRelationships(a.getId()).stream())
                 .map(goalMapper::toResponse)
                 .toList();
@@ -87,18 +81,14 @@ public class ManagerServiceImpl implements ManagerService {
 
     @Override
     public List<AppraisalResponse> getAssignableAppraisals(Long managerId) {
-        return appraisalRepository.findByManagerIdWithRelationships(managerId)
-                .stream()
-                .map(AppraisalMapper::toResponse)
-                .toList();
+        return appraisalRepository.findByManagerIdWithRelationships(managerId).stream()
+                .map(AppraisalMapper::toResponse).toList();
     }
 
     @Override
     public List<AppraisalResponse> getMyAppraisals(Long managerId) {
-        return appraisalRepository.findByEmployeeIdWithRelationships(managerId)
-                .stream()
-                .map(AppraisalMapper::toResponse)
-                .toList();
+        return appraisalRepository.findByEmployeeIdWithRelationships(managerId).stream()
+                .map(AppraisalMapper::toResponse).toList();
     }
 
     @Override
@@ -113,7 +103,6 @@ public class ManagerServiceImpl implements ManagerService {
 
         applySelfAssessmentFields(appraisal, request);
         appraisal.setStatus(AppraisalStatus.SELF_SUBMITTED);
-
         return AppraisalMapper.toResponse(appraisalRepository.save(appraisal));
     }
 
@@ -128,11 +117,9 @@ public class ManagerServiceImpl implements ManagerService {
 
     @Override
     public List<GoalResponse> getMyGoals(Long managerId) {
-        return appraisalRepository.findByEmployeeIdWithRelationships(managerId)
-                .stream()
+        return appraisalRepository.findByEmployeeIdWithRelationships(managerId).stream()
                 .flatMap(a -> goalRepository.findByAppraisalIdWithRelationships(a.getId()).stream())
-                .map(goalMapper::toResponse)
-                .toList();
+                .map(goalMapper::toResponse).toList();
     }
 
     @Override
@@ -146,23 +133,17 @@ public class ManagerServiceImpl implements ManagerService {
         }
 
         if (request.getCompleted() == null) {
-            // Clicked "Mark In Progress" — started working, no completion claim yet
             goal.setEmployeeResponse(GoalEmployeeResponse.IN_PROGRESS);
             goal.setStatus(GoalStatus.IN_PROGRESS);
         } else if (request.getCompleted()) {
-            // Claims done — stays IN_PROGRESS until manager confirms
             goal.setEmployeeResponse(GoalEmployeeResponse.COMPLETED);
             goal.setStatus(GoalStatus.IN_PROGRESS);
         } else {
-            // Claims not done — stays IN_PROGRESS until manager confirms
             goal.setEmployeeResponse(GoalEmployeeResponse.NOT_COMPLETED);
             goal.setStatus(GoalStatus.IN_PROGRESS);
         }
 
-        if (request.getNote() != null) {
-            goal.setEmployeeNote(request.getNote());
-        }
-
+        if (request.getNote() != null) goal.setEmployeeNote(request.getNote());
         return goalMapper.toResponse(goalRepository.save(goal));
     }
 
@@ -191,17 +172,15 @@ public class ManagerServiceImpl implements ManagerService {
 
         Goal saved = goalRepository.save(goal);
 
-        // Notify the employee a new goal has been assigned to them.
+        // Notify employee a new goal was assigned — also sends email
         if (saved.getUser() != null) {
-            Notification notification = new Notification();
-            notification.setUser(saved.getUser());
-            notification.setTitle("New Goal Assigned");
-            notification.setMessage(
+            notificationService.createInternalNotification(
+                    saved.getUser(),
+                    "New Goal Assigned",
                     "Your manager has assigned you a new goal: \"" + saved.getTitle()
-                            + "\" — due " + saved.getDueDate() + ".");
-            notification.setType(NotificationType.GOAL);
-            notification.setIsRead(false);
-            notificationRepository.save(notification);
+                            + "\" — due " + saved.getDueDate() + ".",
+                    NotificationType.GOAL
+            );
         }
 
         return goalMapper.toResponse(saved);
@@ -213,8 +192,7 @@ public class ManagerServiceImpl implements ManagerService {
         Goal goal = goalRepository.findByIdWithRelationships(goalId)
                 .orElseThrow(() -> new ResourceNotFoundException("Goal not found with ID: " + goalId));
 
-        if (goal.getAppraisal() == null
-                || goal.getAppraisal().getManager() == null
+        if (goal.getAppraisal() == null || goal.getAppraisal().getManager() == null
                 || !goal.getAppraisal().getManager().getId().equals(managerId)) {
             throw new BadRequestException("This goal does not belong to one of the requesting manager's reports");
         }
@@ -228,50 +206,22 @@ public class ManagerServiceImpl implements ManagerService {
         Goal goal = goalRepository.findByIdWithRelationships(goalId)
                 .orElseThrow(() -> new ResourceNotFoundException("Goal not found with ID: " + goalId));
 
-        if (goal.getAppraisal() == null
-                || goal.getAppraisal().getManager() == null
+        if (goal.getAppraisal() == null || goal.getAppraisal().getManager() == null
                 || !goal.getAppraisal().getManager().getId().equals(managerId)) {
             throw new BadRequestException("This goal does not belong to one of the requesting manager's reports");
         }
 
         if (goal.getEmployeeResponse() == GoalEmployeeResponse.PENDING
                 || goal.getEmployeeResponse() == GoalEmployeeResponse.IN_PROGRESS) {
-            throw new BadRequestException(
-                    "Cannot confirm this goal yet — the employee has not submitted a completion response.");
+            throw new BadRequestException("Cannot confirm this goal yet — the employee has not submitted a completion response.");
         }
 
         if (completed && goal.getEmployeeResponse() == GoalEmployeeResponse.NOT_COMPLETED) {
-            throw new BadRequestException(
-                    "Cannot mark as completed — the employee reported it as not done. " +
-                            "Reset to Not Started if you want the employee to retry.");
+            throw new BadRequestException("Cannot mark as completed — the employee reported it as not done.");
         }
 
         goal.setStatus(completed ? GoalStatus.COMPLETED : GoalStatus.NOT_STARTED);
-
         return goalMapper.toResponse(goalRepository.save(goal));
-    }
-
-    @Override
-    public TeamReportResponse getTeamReport(Long managerId, Long cycleId) {
-        AppraisalCycle cycle = cycleRepository.findById(cycleId)
-                .orElseThrow(() -> new ResourceNotFoundException("Appraisal cycle not found with ID: " + cycleId));
-
-        List<User> team = userRepository.findByManagerIdWithRelationships(managerId);
-
-        List<TeamReportRow> rows = team.stream()
-                .map(member -> buildReportRow(member, cycleId))
-                .toList();
-
-        List<Double> ratings = rows.stream()
-                .map(TeamReportRow::getSelfRating)
-                .filter(r -> r != null)
-                .toList();
-
-        Double avgRating = ratings.isEmpty()
-                ? null
-                : Math.round(ratings.stream().mapToDouble(Double::doubleValue).average().orElse(0) * 10) / 10.0;
-
-        return new TeamReportResponse(cycle.getName(), team.size(), avgRating, rows);
     }
 
     @Override
@@ -296,70 +246,69 @@ public class ManagerServiceImpl implements ManagerService {
 
         Appraisal saved = appraisalRepository.save(appraisal);
 
-        // Only notify the employee on a real submit — a draft save isn't
-        // final yet, so there's nothing worth interrupting them about.
-        // Only notify the employee on a real submit — a draft save isn't
-// final yet, so there's nothing worth interrupting them about.
-        if (submit && saved.getEmployee() != null) {
-            Notification notification = new Notification();
-            notification.setUser(saved.getEmployee());
-            notification.setTitle("Manager Review Submitted");
-            notification.setMessage(
-                    saved.getManager().getName() + " has reviewed your appraisal for "
-                            + saved.getCycle().getName() + ". Check your appraisal for feedback and rating.");
-            notification.setType(NotificationType.REVIEW);
-            notification.setIsRead(false);
-            notificationRepository.save(notification);
-
-            // Also notify every HR user — the appraisal is now sitting
-            // at MANAGER_REVIEWED, which means it's HR's turn to
-            // approve it. There's no single "the HR person" tied to an
-            // appraisal the way employee/manager are, so this notifies
-            // ALL HR users rather than picking just one.
-            for (User hrUser : userRepository.findByRole(com.appraise.appraisal.System.entity.enums.Roles.HR)) {
-                Notification hrNotification = new Notification();
-                hrNotification.setUser(hrUser);
-                hrNotification.setTitle("Appraisal Ready for Approval");
-                hrNotification.setMessage(
+        if (submit) {
+            // Notify employee their review is done — also sends email
+            if (saved.getEmployee() != null) {
+                notificationService.createInternalNotification(
+                        saved.getEmployee(),
+                        "Manager Review Submitted",
+                        saved.getManager().getName() + " has reviewed your appraisal for "
+                                + saved.getCycle().getName() + ". Check your appraisal for feedback and rating.",
+                        NotificationType.REVIEW
+                );
+            }
+            // Notify all HR users — also sends emails to each
+            for (User hrUser : userRepository.findByRole(Roles.HR)) {
+                notificationService.createInternalNotification(
+                        hrUser,
+                        "Appraisal Ready for Approval",
                         saved.getEmployee().getName() + "'s appraisal for " + saved.getCycle().getName()
                                 + " has been reviewed by " + saved.getManager().getName()
-                                + " and is ready for your approval.");
-                hrNotification.setType(NotificationType.REVIEW);
-                hrNotification.setIsRead(false);
-                notificationRepository.save(hrNotification);
+                                + " and is ready for your approval.",
+                        NotificationType.REVIEW
+                );
             }
         }
 
         return AppraisalMapper.toResponse(saved);
     }
 
-    // ── Private helpers ──────────────────────────────────────────────────────
+    @Override
+    public TeamReportResponse getTeamReport(Long managerId, Long cycleId) {
+        AppraisalCycle cycle = cycleRepository.findById(cycleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Appraisal cycle not found with ID: " + cycleId));
+
+        List<User> team = userRepository.findByManagerIdWithRelationships(managerId);
+        List<TeamReportRow> rows = team.stream().map(member -> buildReportRow(member, cycleId)).toList();
+
+        List<Double> ratings = rows.stream().map(TeamReportRow::getSelfRating)
+                .filter(r -> r != null).toList();
+
+        Double avgRating = ratings.isEmpty()
+                ? null
+                : Math.round(ratings.stream().mapToDouble(Double::doubleValue).average().orElse(0) * 10) / 10.0;
+
+        return new TeamReportResponse(cycle.getName(), team.size(), avgRating, rows);
+    }
 
     private TeamReportRow buildReportRow(User member, Long cycleId) {
         Appraisal appraisal = appraisalRepository.findByEmployeeIdWithRelationships(member.getId())
                 .stream()
                 .filter(a -> a.getCycle() != null && a.getCycle().getId().equals(cycleId))
-                .findFirst()
-                .orElse(null);
+                .findFirst().orElse(null);
 
         List<Goal> memberGoals = appraisal != null
-                ? goalRepository.findByAppraisalIdWithRelationships(appraisal.getId())
-                : List.of();
+                ? goalRepository.findByAppraisalIdWithRelationships(appraisal.getId()) : List.of();
 
-        long goalsCompleted = memberGoals.stream()
-                .filter(g -> g.getStatus() == GoalStatus.COMPLETED)
-                .count();
+        long goalsCompleted = memberGoals.stream().filter(g -> g.getStatus() == GoalStatus.COMPLETED).count();
 
         return new TeamReportRow(
                 appraisal != null ? appraisal.getId() : null,
-                member.getId(),
-                member.getName(),
-                member.getJobTitle(),
+                member.getId(), member.getName(), member.getJobTitle(),
                 appraisal != null ? appraisal.getStatus() : AppraisalStatus.PENDING,
                 appraisal != null ? appraisal.getSelfRating() : null,
                 appraisal != null ? appraisal.getManagerRating() : null,
-                goalsCompleted,
-                memberGoals.size()
+                goalsCompleted, memberGoals.size()
         );
     }
 
@@ -377,20 +326,14 @@ public class ManagerServiceImpl implements ManagerService {
         if (appraisal.getEmployee() == null || !appraisal.getEmployee().getId().equals(managerId)) {
             throw new BadRequestException("This appraisal does not belong to the requesting manager");
         }
-
         return appraisal;
     }
 
     private void validateGoalTimeline(java.time.LocalDate dueDate, AppraisalCycle cycle) {
-        if (dueDate == null) {
-            throw new BadRequestException("Goal due date specification cannot be null");
-        }
-        if (dueDate.isBefore(java.time.LocalDate.now())) {
-            throw new BadRequestException("Due date cannot be backdated to occur in the past");
-        }
-        if (cycle != null && cycle.getEndDate() != null && dueDate.isAfter(cycle.getEndDate())) {
-            throw new BadRequestException("The due date (" + dueDate
-                    + ") must fall within the appraisal cycle window (ends " + cycle.getEndDate() + ")");
-        }
+        if (dueDate == null) throw new BadRequestException("Goal due date cannot be null");
+        if (dueDate.isBefore(java.time.LocalDate.now()))
+            throw new BadRequestException("Due date cannot be in the past");
+        if (cycle != null && cycle.getEndDate() != null && dueDate.isAfter(cycle.getEndDate()))
+            throw new BadRequestException("Due date must fall within the appraisal cycle window (ends " + cycle.getEndDate() + ")");
     }
 }

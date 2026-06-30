@@ -7,7 +7,7 @@ import com.appraise.appraisal.System.dtos.GoalResponse;
 import com.appraise.appraisal.System.dtos.SelfAssessmentRequest;
 import com.appraise.appraisal.System.entity.Appraisal;
 import com.appraise.appraisal.System.entity.Goal;
-import com.appraise.appraisal.System.entity.Notification;
+import com.appraise.appraisal.System.entity.User;
 import com.appraise.appraisal.System.entity.enums.AppraisalStatus;
 import com.appraise.appraisal.System.entity.enums.GoalEmployeeResponse;
 import com.appraise.appraisal.System.entity.enums.GoalStatus;
@@ -20,6 +20,7 @@ import com.appraise.appraisal.System.repository.AppraisalRepository;
 import com.appraise.appraisal.System.repository.GoalRepository;
 import com.appraise.appraisal.System.repository.NotificationRepository;
 import com.appraise.appraisal.System.service.EmployeeService;
+import com.appraise.appraisal.System.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +36,7 @@ public class EmployeeServiceImpl implements EmployeeService {
     private final GoalRepository goalRepository;
     private final NotificationRepository notificationRepository;
     private final GoalMapper goalMapper;
+    private final NotificationService notificationService;
 
     @Override
     public EmployeeDashboardResponse getDashboard(Long employeeId) {
@@ -70,8 +72,7 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     @Override
     public AppraisalResponse getMyAppraisalById(Long employeeId, Long appraisalId) {
-        Appraisal appraisal = findOwnedAppraisal(employeeId, appraisalId);
-        return AppraisalMapper.toResponse(appraisal);
+        return AppraisalMapper.toResponse(findOwnedAppraisal(employeeId, appraisalId));
     }
 
     @Override
@@ -82,7 +83,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         if (appraisal.getStatus() != AppraisalStatus.PENDING
                 && appraisal.getStatus() != AppraisalStatus.EMPLOYEE_DRAFT) {
             throw new BadRequestException(
-                    "Self-assessment can only be submitted while the appraisal is PENDING or EMPLOYEE_DRAFT, not "
+                    "Self-assessment can only be submitted while PENDING or EMPLOYEE_DRAFT, not "
                             + appraisal.getStatus());
         }
 
@@ -94,18 +95,15 @@ public class EmployeeServiceImpl implements EmployeeService {
 
         Appraisal saved = appraisalRepository.save(appraisal);
 
-        // Notify the manager that this employee's self-assessment is
-        // ready for their review.
+        // Notify manager — also sends email via NotificationService
         if (saved.getManager() != null) {
-            Notification notification = new Notification();
-            notification.setUser(saved.getManager());
-            notification.setTitle("Self-Assessment Submitted");
-            notification.setMessage(
+            notificationService.createInternalNotification(
+                    saved.getManager(),
+                    "Self-Assessment Submitted",
                     saved.getEmployee().getName() + " has submitted their self-assessment for "
-                            + saved.getCycle().getName() + ". It's ready for your review.");
-            notification.setType(NotificationType.APPRAISAL);
-            notification.setIsRead(false);
-            notificationRepository.save(notification);
+                            + saved.getCycle().getName() + ". It's ready for your review.",
+                    NotificationType.APPRAISAL
+            );
         }
 
         return AppraisalMapper.toResponse(saved);
@@ -124,19 +122,15 @@ public class EmployeeServiceImpl implements EmployeeService {
         appraisal.setStatus(AppraisalStatus.ACKNOWLEDGED);
         Appraisal saved = appraisalRepository.save(appraisal);
 
-        // Notify the manager that this employee has acknowledged the
-        // appraisal — closes the loop for them, since they may not
-        // otherwise know the cycle has fully completed.
+        // Notify manager — also sends email via NotificationService
         if (saved.getManager() != null) {
-            Notification notification = new Notification();
-            notification.setUser(saved.getManager());
-            notification.setTitle("Appraisal Acknowledged");
-            notification.setMessage(
+            notificationService.createInternalNotification(
+                    saved.getManager(),
+                    "Appraisal Acknowledged",
                     saved.getEmployee().getName() + " has acknowledged their appraisal for "
-                            + saved.getCycle().getName() + ". This appraisal cycle is now complete.");
-            notification.setType(NotificationType.APPRAISAL);
-            notification.setIsRead(false);
-            notificationRepository.save(notification);
+                            + saved.getCycle().getName() + ". This appraisal cycle is now complete.",
+                    NotificationType.APPRAISAL
+            );
         }
 
         return AppraisalMapper.toResponse(saved);
@@ -161,18 +155,48 @@ public class EmployeeServiceImpl implements EmployeeService {
             throw new BadRequestException("This goal does not belong to the requesting employee");
         }
 
+        String employeeName = goal.getUser().getName();
+        String goalTitle = goal.getTitle();
+        User manager = (goal.getAppraisal() != null) ? goal.getAppraisal().getManager() : null;
+
         if (request.getCompleted() == null) {
-            // Clicked "Mark In Progress" — started working, no completion claim yet
             goal.setEmployeeResponse(GoalEmployeeResponse.IN_PROGRESS);
             goal.setStatus(GoalStatus.IN_PROGRESS);
+            // Notify manager — also sends email
+            if (manager != null) {
+                notificationService.createInternalNotification(
+                        manager,
+                        "Goal In Progress",
+                        employeeName + " has started working on goal: \"" + goalTitle + "\".",
+                        NotificationType.GOAL
+                );
+            }
         } else if (request.getCompleted()) {
-            // Claims done — stays IN_PROGRESS until manager confirms
             goal.setEmployeeResponse(GoalEmployeeResponse.COMPLETED);
             goal.setStatus(GoalStatus.IN_PROGRESS);
+            // Notify manager — also sends email
+            if (manager != null) {
+                notificationService.createInternalNotification(
+                        manager,
+                        "Goal Marked as Completed",
+                        employeeName + " has marked goal: \"" + goalTitle
+                                + "\" as completed. Please review and confirm.",
+                        NotificationType.GOAL
+                );
+            }
         } else {
-            // Claims not done — stays IN_PROGRESS until manager confirms
             goal.setEmployeeResponse(GoalEmployeeResponse.NOT_COMPLETED);
             goal.setStatus(GoalStatus.IN_PROGRESS);
+            // Notify manager — also sends email
+            if (manager != null) {
+                notificationService.createInternalNotification(
+                        manager,
+                        "Goal Not Completed",
+                        employeeName + " was unable to complete goal: \"" + goalTitle
+                                + "\". You may want to follow up.",
+                        NotificationType.GOAL
+                );
+            }
         }
 
         if (request.getNote() != null) {
@@ -190,8 +214,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         if (appraisal.getStatus() != AppraisalStatus.PENDING
                 && appraisal.getStatus() != AppraisalStatus.EMPLOYEE_DRAFT) {
             throw new BadRequestException(
-                    "Draft can only be saved while the appraisal is PENDING or EMPLOYEE_DRAFT, not "
-                            + appraisal.getStatus());
+                    "Draft can only be saved while PENDING or EMPLOYEE_DRAFT, not " + appraisal.getStatus());
         }
 
         appraisal.setWhatWentWell(request.getWhatWentWell());
@@ -202,8 +225,6 @@ public class EmployeeServiceImpl implements EmployeeService {
 
         return AppraisalMapper.toResponse(appraisalRepository.save(appraisal));
     }
-
-    // ── Private helpers ──────────────────────────────────────────────────────
 
     private Appraisal findOwnedAppraisal(Long employeeId, Long appraisalId) {
         Appraisal appraisal = appraisalRepository.findByIdWithRelationships(appraisalId)
